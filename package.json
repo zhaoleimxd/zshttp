@@ -1,0 +1,23 @@
+{
+  "name": "zshttp",
+  "version": "1.0.0",
+  "description": "zhaoleimxd simple http server",
+  "repository": "-",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "zhaoleimxd",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^12.12.24",
+    "@types/mysql": "^2.15.9",
+    "@types/request": "^2.48.4",
+    "@types/serve-static": "^1.13.3"
+  },
+  "dependencies": {
+    "mysql": "^2.18.1",
+    "request": "^2.88.0",
+    "serve-static": "^1.14.1"
+  }
+}
