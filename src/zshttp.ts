@@ -193,10 +193,17 @@ export class ZSHttp {
                     else {
                         switch (request.method) {
                             case "GET": {
-                                response.writeHead(200, {
-                                    "Content-Type": this.getMimeType(url)
-                                });
-                                fs.createReadStream(localPath).pipe(response);
+                                let t: number = new Date(request.headers["if-modified-since"]).getTime();
+                                if (t != Math.floor(stats.mtime.getTime() / 1000) * 1000) {
+                                    response.writeHead(200, {
+                                        "Last-Modified": stats.mtime.toString(),
+                                        "Content-Type": this.getMimeType(url)
+                                    });
+                                    fs.createReadStream(localPath).pipe(response);
+                                }
+                                else {
+                                    this.onRequestFailed(response, 304);
+                                }
                                 break;
                             }
                             default: {
