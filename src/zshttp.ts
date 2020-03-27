@@ -179,6 +179,7 @@ export class ZSHttp {
         this.http = http.createServer((request: http.IncomingMessage, response: http.ServerResponse) => {
             if (this.options.https != undefined) {
                 if (this.options.https.forceRedirectDomain != undefined) {
+                    this.log(`Client request - ${request.socket.remoteAddress}:${request.socket.remotePort} - Bad host name - ${request.headers["host"]} - ${request.url}`)
                     this.onRequestFailed(response, 301, undefined, {
                         "Location": `https://${this.options.https.forceRedirectDomain}${request.url}`,
                         "Non-Authoritative-Reason": "HSTS"
@@ -218,6 +219,7 @@ export class ZSHttp {
     }
 
     private onRequest(request: http.IncomingMessage, response: http.ServerResponse) {
+        request["remoteHost"] = `${request.socket.remoteAddress}:${request.socket.remotePort}`;
         if (request.headers["host"] != undefined) {
             if (this.options.hostName != undefined) {
                 if (request.headers["host"] != this.options.hostName) {
@@ -227,7 +229,6 @@ export class ZSHttp {
                 }
             }
         }
-        request["remoteHost"] = `${request.socket.remoteAddress}:${request.socket.remotePort}`;
         request.url = this.rewrite(request.url);
         let url: URL = parseUrl(request.url);
         if (url == undefined) {
