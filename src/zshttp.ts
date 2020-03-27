@@ -1,5 +1,7 @@
 import * as http from 'http';
+import * as https from 'https';
 import * as net from 'net';
+import * as tls from 'tls';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -58,8 +60,16 @@ function formatTime(date?: Date, fmt?: string) {
 }
 
 interface ZSHttpOptions {
-    port: number;
+    port?: number;
     host?: string;
+    hostName?: string;
+    https?: {
+        key: Buffer;
+        cert: Buffer;
+        port?: number;
+        forceRedirectDomain?: string;
+        disableHttp?: boolean;
+    };
     rootPath?: string;
     rejectOtherPath?: boolean;
     listDirectory?: boolean;
@@ -70,11 +80,25 @@ interface ZSHttpOptions {
 
 export class ZSHttp {
     options: ZSHttpOptions;
-    server: http.Server;
+    http: http.Server;
+    https: https.Server;
 
     private checkOptions(options: ZSHttpOptions): ZSHttpOptions {
+        if(options.port == undefined) {
+            options.port = 80;
+        }
+        
         if (options.host == undefined) {
             options.host = "0.0.0.0";
+        }
+
+        if (options.https != undefined) {
+            if (options.https.port == undefined) {
+                options.https.port = 443;
+            }
+            if (options.https.disableHttp == undefined) {
+                options.https.disableHttp = false;
+            }
         }
 
         if (options.rootPath == undefined) {
@@ -127,10 +151,50 @@ export class ZSHttp {
     constructor(options: ZSHttpOptions) {
         this.options = this.checkOptions(options);
 
-        this.server = http.createServer((request: http.IncomingMessage, response: http.ServerResponse) => {
+        if (this.options.https != undefined) {
+            this.https = https.createServer({
+                key: options.https.key,
+                cert: options.https.cert
+            }, (request: http.IncomingMessage, response: http.ServerResponse) => {
+                this.onRequest(request, response);
+            }).on("listening", () => {
+                this.log(`ZSHTTPS start at ${this.options.host}:${this.options.https.port}, local directory: ${this.options.rootPath}.`);
+            }).on("secureConnection", (tlsSocket: tls.TLSSocket) => {
+                tlsSocket.on("close", () => {
+                });
+            }).on("tlsClientError", (err: Error, tlsSocket: tls.TLSSocket) => {
+
+            }).on("error", (error: Error) => {
+                console.error(error);
+                this.log(`HTTPS Server error.`);
+            }).on("close", () => {
+                this.log(`HTTPS Server closed.`);
+            });
+
+            if (this.options.https.disableHttp) {
+                return ;
+            }
+        }
+
+        this.http = http.createServer((request: http.IncomingMessage, response: http.ServerResponse) => {
+            if (this.options.https != undefined) {
+                if (this.options.https.forceRedirectDomain != undefined) {
+                    this.onRequestFailed(response, 301, undefined, {
+                        "Location": `https://${this.options.https.forceRedirectDomain}${request.url}`,
+                        "Non-Authoritative-Reason": "HSTS"
+                    });
+                    return ;
+                }
+            }
             this.onRequest(request, response);
         }).on("listening", () => {
-            this.log(`ZSHttp start at ${this.options.host}:${this.options.port}, local directory: ${this.options.rootPath}.`);
+            if (this.options.https != undefined) {
+                if (this.options.https.forceRedirectDomain != undefined) {
+                    this.log(`ZSHTTP start at ${this.options.host}:${this.options.port}, force redirect to: https://${this.options.https.forceRedirectDomain}.`);
+                    return ;
+                }
+            }
+            this.log(`ZSHTTP start at ${this.options.host}:${this.options.port}, local directory: ${this.options.rootPath}.`);
         }).on("connection", (socket: net.Socket) => {
             socket.on("close", (hadError: boolean) => {
                 //this.log(`Client closed: ${socket.remoteAddress}:${socket.remotePort}.`);
@@ -138,17 +202,31 @@ export class ZSHttp {
             //this.log(`Client connected: ${socket.remoteAddress}:${socket.remotePort}.`);
         }).on("error", (error: Error) => {
             console.error(error);
-            this.log(`Server error.`);
+            this.log(`HTTP Server error.`);
         }).on("close", () => {
-            this.log(`Server closed.`);
+            this.log(`HTTP Server closed.`);
         });
     }
 
     public start() {
-        this.server.listen(this.options.port, this.options.host);
+        if (this.https != undefined) {
+            this.https.listen(this.options.https.port, this.options.host);
+        }
+        if (this.http != undefined) {
+            this.http.listen(this.options.port, this.options.host);
+        }
     }
 
     private onRequest(request: http.IncomingMessage, response: http.ServerResponse) {
+        if (request.headers["host"] != undefined) {
+            if (this.options.hostName != undefined) {
+                if (request.headers["host"] != this.options.hostName) {
+                    this.log(`Client request - ${request["remoteHost"]} - Bad host name - ${request.headers["host"]} - ${request.url}`);
+                    this.onRequestFailed(response, 400);
+                    return ;
+                }
+            }
+        }
         request["remoteHost"] = `${request.socket.remoteAddress}:${request.socket.remotePort}`;
         request.url = this.rewrite(request.url);
         let url: URL = parseUrl(request.url);
