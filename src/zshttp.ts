@@ -61,6 +61,7 @@ interface ZSHttpOptions {
     port: number;
     host?: string;
     rootPath?: string;
+    rejectOtherPath?: boolean;
     listDirectory?: boolean;
     useDefaultPage?: boolean;
     defaultPage?: Array<string>;
@@ -78,6 +79,13 @@ export class ZSHttp {
 
         if (options.rootPath == undefined) {
             
+        }
+        else {
+            options.rootPath = path.resolve(options.rootPath);
+        }
+
+        if (options.rejectOtherPath == undefined) {
+            options.rejectOtherPath = true;
         }
 
         if (options.listDirectory == undefined) {
@@ -120,10 +128,9 @@ export class ZSHttp {
         this.options = this.checkOptions(options);
 
         this.server = http.createServer((request: http.IncomingMessage, response: http.ServerResponse) => {
-            this.log(`Client request - ${request.socket.remoteAddress}:${request.socket.remotePort} - ${request.url}`);
             this.onRequest(request, response);
         }).on("listening", () => {
-            this.log(`ZSHttp start at ${this.options.host}:${this.options.port}.`);
+            this.log(`ZSHttp start at ${this.options.host}:${this.options.port}, local directory: ${this.options.rootPath}.`);
         }).on("connection", (socket: net.Socket) => {
             socket.on("close", (hadError: boolean) => {
                 //this.log(`Client closed: ${socket.remoteAddress}:${socket.remotePort}.`);
@@ -142,9 +149,11 @@ export class ZSHttp {
     }
 
     private onRequest(request: http.IncomingMessage, response: http.ServerResponse) {
+        request["remoteHost"] = `${request.socket.remoteAddress}:${request.socket.remotePort}`;
         request.url = this.rewrite(request.url);
         let url: URL = parseUrl(request.url);
         if (url == undefined) {
+            this.log(`Client request - ${request["remoteHost"]} - Parse url failed - ${request.url}`);
             this.onRequestFailed(response, 400);
             return ;
         }
@@ -153,6 +162,13 @@ export class ZSHttp {
         if (this.options.rootPath != undefined) {
             localPath = this.options.rootPath + url.path;
             localPath = path.resolve(localPath);
+            if (this.options.rejectOtherPath) {
+                if (!localPath.startsWith(this.options.rootPath)) {
+                    this.log(`Client request - ${request["remoteHost"]} - Reject other path - ${request.url}`);
+                    this.onRequestFailed(response, 400);
+                    return ;
+                }
+            }
         }
         else {
             localPath = "undefined" + url.path;
@@ -177,11 +193,13 @@ export class ZSHttp {
     private onLocalFile(url: URL, localPath: string, request: http.IncomingMessage, response: http.ServerResponse) {
         fs.exists(localPath, (exists: boolean) => {
             if (!exists) {
+                this.log(`Client request - ${request["remoteHost"]} - File not exist - ${request.url}`);
                 this.onRequestFailed(response, 404);
                 return ;
             }
             fs.stat(localPath, (error: NodeJS.ErrnoException, stats: fs.Stats) => {
                 if (error != null) {
+                    this.log(`Client request - ${request["remoteHost"]} - Failed to get file stats - ${request.url}`);
                     this.onRequestFailed(response, 500, error.message);
                     return ;
                 }
@@ -195,6 +213,7 @@ export class ZSHttp {
                             case "GET": {
                                 let t: number = new Date(request.headers["if-modified-since"]).getTime();
                                 if (t != Math.floor(stats.mtime.getTime() / 1000) * 1000) {
+                                    this.log(`Client request - ${request["remoteHost"]} - OK - ${request.url}`);
                                     response.writeHead(200, {
                                         "Last-Modified": stats.mtime.toString(),
                                         "Content-Type": this.getMimeType(url)
@@ -202,11 +221,13 @@ export class ZSHttp {
                                     fs.createReadStream(localPath).pipe(response);
                                 }
                                 else {
+                                    this.log(`Client request - ${request["remoteHost"]} - Not modified - ${request.url}`);
                                     this.onRequestFailed(response, 304);
                                 }
                                 break;
                             }
                             default: {
+                                this.log(`Client request - ${request["remoteHost"]} - Not allowed method: ${request.method} - ${request.url}`);
                                 this.onRequestFailed(response, 405, "Method Not Allowed.", {
                                     "Allow": "GET"
                                 });
@@ -230,6 +251,7 @@ export class ZSHttp {
             this.onListDirectory(url, localPath, request, response);
         }
         else if (this.options.defaultPage == undefined) {
+            this.log(`Client request - ${request["remoteHost"]} - Refuse to list directory - ${request.url}`);
             this.onRequestFailed(response, 403);
         }
         else {
@@ -242,10 +264,12 @@ export class ZSHttp {
                         fs.exists(filePath, cb);
                     }
                     else {
+                        this.log(`Client request - ${request["remoteHost"]} - No default page in directory - ${request.url}`);
                         this.onRequestFailed(response, 404);
                     }
                 }
                 else {
+                    this.log(`Client request - ${request["remoteHost"]} - Redirect to default page: ${this.options.defaultPage[i]} - ${request.url}`);
                     this.onRequestFailed(response, 302, undefined, {
                         "Location": `${url.path}${this.options.defaultPage[i]}`
                     });
@@ -257,7 +281,9 @@ export class ZSHttp {
     }
 
     private onListDirectory(url: URL, localPath: string, request: http.IncomingMessage, response: http.ServerResponse) {
-
+        this.log(`Client request - ${request["remoteHost"]} - List directory - ${request.url}`);
+        response.writeHead(200);
+        response.end("Not implemented yet.");
     }
 
     private onRequestFailed(response: http.ServerResponse, statusCode: number, body?: any, headers?: http.OutgoingHttpHeaders) {

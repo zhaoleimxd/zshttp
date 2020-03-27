@@ -12,13 +12,16 @@ export interface URL {
     aaaaa?: Array<string>;
 }
 
-export function parseUrl(url: string): URL {
+export function parseUrl(urlPath: string): URL {
+    if (!urlPath.startsWith("/")) {
+        return undefined;
+    }
     let pathPattern: RegExp = /(\/[^\?]*)\??(.*)/;
-    if (!pathPattern.test(url)) {
+    if (!pathPattern.test(urlPath)) {
         return undefined;
     }
     else {
-        let ea: RegExpExecArray = pathPattern.exec(url);
+        let ea: RegExpExecArray = pathPattern.exec(urlPath);
         let result: URL = {
             path: ea[1]
         };

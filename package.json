@@ -1,6 +1,6 @@
 {
   "name": "zshttp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "zhaoleimxd's simple HTTP Server",
   "repository": {
     "type": "git",
